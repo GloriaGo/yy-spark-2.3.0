@@ -71,6 +71,6 @@ public class JavaOnlineLDAExample {
 //// Shows the result.
 //        Dataset<Row> transformed = model.transform(trainingData);
 //        transformed.show(false);
-//        spark.stop();
+        spark.stop();
   }
 }

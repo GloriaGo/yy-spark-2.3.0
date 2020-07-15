@@ -1,0 +1,5 @@
+# 删除develop里面的mllib/mllibFP, 用develop里面的mllib替换掉original里面的mllib，用下面的命令编译original
+# 删除examples里面的scala文件OneHotEncoderEstimatorExample.scala, VectorSizeHintExample.scala
+# 删除/root/spark-original-source-2.3.0/examples/src/main/java/org/apache/spark/examples/ml/JavaVectorSizeHintExample.java
+# 删除/root/spark-original-source-2.3.0/examples/src/main/java/org/apache/spark/examples/ml/JavaOneHotEncoderEstimatorExample.java
+./build/mvn -e -Pyarn -Phadoop-2.7 -Dhadoop.version=2.7.7 -Dmaven.test.skip=true clean package
