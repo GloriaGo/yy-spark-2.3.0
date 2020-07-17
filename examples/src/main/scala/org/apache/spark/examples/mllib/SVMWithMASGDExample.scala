@@ -32,8 +32,8 @@ object SVMWithMASGDExample extends Logging{
     // Load training data that has been balanced stored.
     val training = MLUtils.loadLibSVMFile(sc, args.apply(1))
     // Run training algorithm to build the model
-    val stepSize = args.apply(2).toDouble // 1.0
-    val regParam = args.apply(3).toDouble // 0.01
+    val stepSize = args.apply(2).toDouble // 0.01
+    val regParam = args.apply(3).toDouble // 0.0001
     val miniBatchFraction = args.apply(4).toDouble // 1.0
     val numIterations = args.apply(5).toInt // 10
 
@@ -43,7 +43,7 @@ object SVMWithMASGDExample extends Logging{
     logInfo(s"YYlog=running_time_per_iter(s):${((System.nanoTime()-startTime)/1e9)/numIterations}")
 
     // Save and load model
-    model.save(sc, "target/tmp/scalaSVMWithMASGDModel")
+//    model.save(sc, "target/tmp/scalaSVMWithMASGDModel")
 //    val sameModel = SVMModel.load(sc, "target/tmp/scalaSVMWithMASGDModel")
     // $example off$
 

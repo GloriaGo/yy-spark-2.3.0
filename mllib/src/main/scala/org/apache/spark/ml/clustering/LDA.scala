@@ -32,10 +32,13 @@ import org.apache.spark.ml.param._
 import org.apache.spark.ml.param.shared.{HasCheckpointInterval, HasFeaturesCol, HasMaxIter, HasSeed}
 import org.apache.spark.ml.util._
 import org.apache.spark.ml.util.DefaultParamsReader.Metadata
-import org.apache.spark.mllib.clustering.{DistributedLDAModel => OldDistributedLDAModel,
+import org.apache.spark.mllib.clustering.{
+  DistributedLDAModel => OldDistributedLDAModel,
   EMLDAOptimizer => OldEMLDAOptimizer, LDA => OldLDA, LDAModel => OldLDAModel,
   LDAOptimizer => OldLDAOptimizer, LocalLDAModel => OldLocalLDAModel,
-  OnlineLDAOptimizer => OldOnlineLDAOptimizer}
+  ModelAverageLDAOptimizer => OldModelAverageLDAOptimizer,
+  OnlineLDAOptimizer => OldOnlineLDAOptimizer
+}
 import org.apache.spark.mllib.linalg.{Vector => OldVector, Vectors => OldVectors}
 import org.apache.spark.mllib.linalg.MatrixImplicits._
 import org.apache.spark.mllib.linalg.VectorImplicits._
@@ -63,6 +66,11 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
   @Since("1.6.0")
   def getK: Int = $(k)
 
+  final val workerNumber = new IntParam(this, "workerNumber", "executer numbers", ParamValidators.gt(1))
+
+  /** @group getParam */
+  def getWorkerNumber: Int = $(workerNumber)
+
   /**
    * Concentration parameter (commonly named "alpha") for the prior placed on documents'
    * distributions over topics ("theta").
@@ -78,14 +86,14 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
    * Optimizer-specific parameter settings:
    *  - EM
    *     - Currently only supports symmetric distributions, so all values in the vector should be
-   *       the same.
+   * the same.
    *     - Values should be greater than 1.0
    *     - default = uniformly (50 / k) + 1, where 50/k is common in LDA libraries and +1 follows
-   *       from Asuncion et al. (2009), who recommend a +1 adjustment for EM.
+   * from Asuncion et al. (2009), who recommend a +1 adjustment for EM.
    *  - Online
    *     - Values should be greater than or equal to 0
    *     - default = uniformly (1.0 / k), following the implementation from
-   *       <a href="https://github.com/Blei-Lab/onlineldavb">here</a>.
+   * <a href="https://github.com/Blei-Lab/onlineldavb">here</a>.
    *
    * @group param
    */
@@ -117,17 +125,17 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
    * by Blei et al., but are called "phi" in many later papers such as Asuncion et al., 2009.
    *
    * If not set by the user, then topicConcentration is set automatically.
-   *  (default = automatic)
+   * (default = automatic)
    *
    * Optimizer-specific parameter settings:
    *  - EM
    *     - Value should be greater than 1.0
    *     - default = 0.1 + 1, where 0.1 gives a small amount of smoothing and +1 follows
-   *       Asuncion et al. (2009), who recommend a +1 adjustment for EM.
+   * Asuncion et al. (2009), who recommend a +1 adjustment for EM.
    *  - Online
    *     - Value should be greater than or equal to 0
    *     - default = (1.0 / k), following the implementation from
-   *       <a href="https://github.com/Blei-Lab/onlineldavb">here</a>.
+   * <a href="https://github.com/Blei-Lab/onlineldavb">here</a>.
    *
    * @group param
    */
@@ -151,7 +159,7 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
 
   /** Supported values for Param [[optimizer]]. */
   @Since("1.6.0")
-  final val supportedOptimizers: Array[String] = Array("online", "em")
+  final val supportedOptimizers: Array[String] = Array("online", "em", "ma")
 
   /**
    * Optimizer or inference algorithm used to estimate the LDA model.
@@ -161,13 +169,13 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
    *
    * For details, see the following papers:
    *  - Online LDA:
-   *     Hoffman, Blei and Bach.  "Online Learning for Latent Dirichlet Allocation."
-   *     Neural Information Processing Systems, 2010.
-   *     See <a href="http://www.cs.columbia.edu/~blei/papers/HoffmanBleiBach2010b.pdf">here</a>
+   * Hoffman, Blei and Bach.  "Online Learning for Latent Dirichlet Allocation."
+   * Neural Information Processing Systems, 2010.
+   * See <a href="http://www.cs.columbia.edu/~blei/papers/HoffmanBleiBach2010b.pdf">here</a>
    *  - EM:
-   *     Asuncion et al.  "On Smoothing and Inference for Topic Models."
-   *     Uncertainty in Artificial Intelligence, 2009.
-   *     See <a href="http://arxiv.org/pdf/1205.2662.pdf">here</a>
+   * Asuncion et al.  "On Smoothing and Inference for Topic Models."
+   * Uncertainty in Artificial Intelligence, 2009.
+   * See <a href="http://arxiv.org/pdf/1205.2662.pdf">here</a>
    *
    * @group param
    */
@@ -202,7 +210,7 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
   def getTopicDistributionCol: String = $(topicDistributionCol)
 
   /**
-   * For Online optimizer only: [[optimizer]] = "online".
+   * For Online optimizer only: [[optimizer]] != "em".
    *
    * A (positive) learning parameter that downweights early iterations. Larger values make early
    * iterations count less.
@@ -222,7 +230,7 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
   def getLearningOffset: Double = $(learningOffset)
 
   /**
-   * For Online optimizer only: [[optimizer]] = "online".
+   * For Online optimizer only: [[optimizer]] != "em".
    *
    * Learning rate, set as an exponential decay rate.
    * This should be between (0.5, 1.0] to guarantee asymptotic convergence.
@@ -241,7 +249,7 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
   def getLearningDecay: Double = $(learningDecay)
 
   /**
-   * For Online optimizer only: [[optimizer]] = "online".
+   * For Online optimizer only: [[optimizer]] != "em".
    *
    * Fraction of the corpus to be sampled and used in each iteration of mini-batch gradient descent,
    * in range (0, 1].
@@ -251,7 +259,7 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
    * maxIterations * miniBatchFraction greater than or equal to 1.
    *
    * Note: This is the same as the `miniBatchFraction` parameter in
-   *       [[org.apache.spark.mllib.clustering.OnlineLDAOptimizer]].
+   * [[org.apache.spark.mllib.clustering.OnlineLDAOptimizer]].
    *
    * Default: 0.05, i.e., 5% of total documents.
    *
@@ -268,7 +276,7 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
   def getSubsamplingRate: Double = $(subsamplingRate)
 
   /**
-   * For Online optimizer only (currently): [[optimizer]] = "online".
+   * For Online optimizer only (currently): [[optimizer]] != "em".
    *
    * Indicates whether the docConcentration (Dirichlet parameter for
    * document-topic distribution) will be optimized during training.
@@ -333,6 +341,10 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
           require(getDocConcentration.forall(_ >= 0),
             "For EM optimizer, docConcentration values must be >= 1.  Found values: " +
               getDocConcentration.mkString(","))
+        case "ma" =>
+          require(getDocConcentration.forall(_ >= 0),
+            "For ModelAverageLDA optimizer, docConcentration values must be >= 0.  Found values: " +
+              getDocConcentration.mkString(","))
       }
     }
     if (isSet(topicConcentration)) {
@@ -343,6 +355,9 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
         case "em" =>
           require(getTopicConcentration >= 0, s"For EM optimizer, topicConcentration" +
             s" must be >= 1.  Found value: $getTopicConcentration")
+        case "ma" =>
+          require(getTopicConcentration >= 0, s"For ModelAverageLDAoptimizer, topicConcentration" +
+            s" must be >= 0.  Found value: $getTopicConcentration")
       }
     }
     SchemaUtils.checkColumnType(schema, $(featuresCol), new VectorUDT)
@@ -360,6 +375,12 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
       case "em" =>
         new OldEMLDAOptimizer()
           .setKeepLastCheckpoint($(keepLastCheckpoint))
+      case "ma" =>
+        new OldModelAverageLDAOptimizer()
+          .setTau0($(learningOffset))
+          .setKappa($(learningDecay))
+          .setMiniBatchFraction($(subsamplingRate))
+          .setOptimizeDocConcentration($(optimizeDocConcentration))
     }
 }
 
@@ -400,14 +421,14 @@ private object LDAParams {
 /**
  * Model fitted by [[LDA]].
  *
- * @param vocabSize  Vocabulary size (number of terms or words in the vocabulary)
- * @param sparkSession  Used to construct local DataFrames for returning query results
+ * @param vocabSize    Vocabulary size (number of terms or words in the vocabulary)
+ * @param sparkSession Used to construct local DataFrames for returning query results
  */
 @Since("1.6.0")
-abstract class LDAModel private[ml] (
-    @Since("1.6.0") override val uid: String,
-    @Since("1.6.0") val vocabSize: Int,
-    @Since("1.6.0") @transient private[ml] val sparkSession: SparkSession)
+abstract class LDAModel private[ml](
+                                     @Since("1.6.0") override val uid: String,
+                                     @Since("1.6.0") val vocabSize: Int,
+                                     @Since("1.6.0") @transient private[ml] val sparkSession: SparkSession)
   extends Model[LDAModel] with LDAParams with Logging with MLWritable {
 
   // NOTE to developers:
@@ -450,8 +471,8 @@ abstract class LDAModel private[ml] (
    * Transforms the input dataset.
    *
    * WARNING: If this model is an instance of [[DistributedLDAModel]] (produced when [[optimizer]]
-   *          is set to "em"), this involves collecting a large [[topicsMatrix]] to the driver.
-   *          This implementation may be changed in the future.
+   * is set to "em"), this involves collecting a large [[topicsMatrix]] to the driver.
+   * This implementation may be changed in the future.
    */
   @Since("2.0.0")
   override def transform(dataset: Dataset[_]): DataFrame = {
@@ -488,8 +509,8 @@ abstract class LDAModel private[ml] (
    * No guarantees are given about the ordering of the topics.
    *
    * WARNING: If this model is actually a [[DistributedLDAModel]] instance produced by
-   *          the Expectation-Maximization ("em") [[optimizer]], then this method could involve
-   *          collecting a large amount of data to the driver (on the order of vocabSize x k).
+   * the Expectation-Maximization ("em") [[optimizer]], then this method could involve
+   * collecting a large amount of data to the driver (on the order of vocabSize x k).
    */
   @Since("2.0.0")
   def topicsMatrix: Matrix = oldLocalModel.topicsMatrix.asML
@@ -504,10 +525,10 @@ abstract class LDAModel private[ml] (
    * See Equation (16) in the Online LDA paper (Hoffman et al., 2010).
    *
    * WARNING: If this model is an instance of [[DistributedLDAModel]] (produced when [[optimizer]]
-   *          is set to "em"), this involves collecting a large [[topicsMatrix]] to the driver.
-   *          This implementation may be changed in the future.
+   * is set to "em"), this involves collecting a large [[topicsMatrix]] to the driver.
+   * This implementation may be changed in the future.
    *
-   * @param dataset  test corpus to use for calculating log likelihood
+   * @param dataset test corpus to use for calculating log likelihood
    * @return variational lower bound on the log likelihood of the entire corpus
    */
   @Since("2.0.0")
@@ -521,8 +542,8 @@ abstract class LDAModel private[ml] (
    * See Equation (16) in the Online LDA paper (Hoffman et al., 2010).
    *
    * WARNING: If this model is an instance of [[DistributedLDAModel]] (produced when [[optimizer]]
-   *          is set to "em"), this involves collecting a large [[topicsMatrix]] to the driver.
-   *          This implementation may be changed in the future.
+   * is set to "em"), this involves collecting a large [[topicsMatrix]] to the driver.
+   * This implementation may be changed in the future.
    *
    * @param dataset test corpus to use for calculating perplexity
    * @return Variational upper bound on log perplexity per token.
@@ -536,12 +557,12 @@ abstract class LDAModel private[ml] (
   /**
    * Return the topics described by their top-weighted terms.
    *
-   * @param maxTermsPerTopic  Maximum number of terms to collect for each topic.
-   *                          Default value of 10.
-   * @return  Local DataFrame with one topic per Row, with columns:
+   * @param maxTermsPerTopic Maximum number of terms to collect for each topic.
+   *                         Default value of 10.
+   * @return   Local DataFrame with one topic per Row, with columns:
    *           - "topic": IntegerType: topic index
    *           - "termIndices": ArrayType(IntegerType): term indices, sorted in order of decreasing
-   *                            term importance
+   *           term importance
    *           - "termWeights": ArrayType(DoubleType): corresponding sorted term weights
    */
   @Since("1.6.0")
@@ -565,11 +586,11 @@ abstract class LDAModel private[ml] (
  * This model stores the inferred topics only; it does not store info about the training dataset.
  */
 @Since("1.6.0")
-class LocalLDAModel private[ml] (
-    uid: String,
-    vocabSize: Int,
-    @Since("1.6.0") override private[clustering] val oldLocalModel: OldLocalLDAModel,
-    sparkSession: SparkSession)
+class LocalLDAModel private[ml](
+                                 uid: String,
+                                 vocabSize: Int,
+                                 @Since("1.6.0") override private[clustering] val oldLocalModel: OldLocalLDAModel,
+                                 sparkSession: SparkSession)
   extends LDAModel(uid, vocabSize, sparkSession) {
 
   @Since("1.6.0")
@@ -595,11 +616,11 @@ object LocalLDAModel extends MLReadable[LocalLDAModel] {
   class LocalLDAModelWriter(instance: LocalLDAModel) extends MLWriter {
 
     private case class Data(
-        vocabSize: Int,
-        topicsMatrix: Matrix,
-        docConcentration: Vector,
-        topicConcentration: Double,
-        gammaShape: Double)
+                             vocabSize: Int,
+                             topicsMatrix: Matrix,
+                             docConcentration: Vector,
+                             topicConcentration: Double,
+                             gammaShape: Double)
 
     override protected def saveImpl(path: String): Unit = {
       DefaultParamsWriter.saveMetadata(instance, path, sc)
@@ -622,7 +643,7 @@ object LocalLDAModel extends MLReadable[LocalLDAModel] {
       val vectorConverted = MLUtils.convertVectorColumnsToML(data, "docConcentration")
       val matrixConverted = MLUtils.convertMatrixColumnsToML(vectorConverted, "topicsMatrix")
       val Row(vocabSize: Int, topicsMatrix: Matrix, docConcentration: Vector,
-          topicConcentration: Double, gammaShape: Double) =
+      topicConcentration: Double, gammaShape: Double) =
         matrixConverted.select("vocabSize", "topicsMatrix", "docConcentration",
           "topicConcentration", "gammaShape").head()
       val oldModel = new OldLocalLDAModel(topicsMatrix, docConcentration, topicConcentration,
@@ -649,16 +670,16 @@ object LocalLDAModel extends MLReadable[LocalLDAModel] {
  * This model stores the inferred topics, the full training dataset, and the topic distribution
  * for each training document.
  *
- * @param oldLocalModelOption  Used to implement [[oldLocalModel]] as a lazy val, but keeping
- *                             `copy()` cheap.
+ * @param oldLocalModelOption Used to implement [[oldLocalModel]] as a lazy val, but keeping
+ *                            `copy()` cheap.
  */
 @Since("1.6.0")
-class DistributedLDAModel private[ml] (
-    uid: String,
-    vocabSize: Int,
-    private val oldDistributedModel: OldDistributedLDAModel,
-    sparkSession: SparkSession,
-    private var oldLocalModelOption: Option[OldLocalLDAModel])
+class DistributedLDAModel private[ml](
+                                       uid: String,
+                                       vocabSize: Int,
+                                       private val oldDistributedModel: OldDistributedLDAModel,
+                                       sparkSession: SparkSession,
+                                       private var oldLocalModelOption: Option[OldLocalLDAModel])
   extends LDAModel(uid, vocabSize, sparkSession) {
 
   override private[clustering] def oldLocalModel: OldLocalLDAModel = {
@@ -693,15 +714,15 @@ class DistributedLDAModel private[ml] (
   /**
    * Log likelihood of the observed tokens in the training set,
    * given the current parameter estimates:
-   *  log P(docs | topics, topic distributions for docs, Dirichlet hyperparameters)
+   * log P(docs | topics, topic distributions for docs, Dirichlet hyperparameters)
    *
    * Notes:
    *  - This excludes the prior; for that, use [[logPrior]].
    *  - Even with [[logPrior]], this is NOT the same as the data log likelihood given the
-   *    hyperparameters.
+   * hyperparameters.
    *  - This is computed from the topic distributions computed during training. If you call
-   *    `logLikelihood()` on the same training dataset, the topic distributions will be computed
-   *    again, possibly giving different results.
+   * `logLikelihood()` on the same training dataset, the topic distributions will be computed
+   * again, possibly giving different results.
    */
   @Since("1.6.0")
   lazy val trainingLogLikelihood: Double = oldDistributedModel.logLikelihood
@@ -725,7 +746,7 @@ class DistributedLDAModel private[ml] (
    * by certain [[DistributedLDAModel]] methods.  Reference counting will clean up the checkpoints
    * when this model and derivative data go out of scope.
    *
-   * @return  Checkpoint files from training
+   * @return Checkpoint files from training
    */
   @DeveloperApi
   @Since("2.0.0")
@@ -798,21 +819,21 @@ object DistributedLDAModel extends MLReadable[DistributedLDAModel] {
  *  - "document": one piece of text, corresponding to one row in the input data
  *
  * Original LDA paper (journal version):
- *  Blei, Ng, and Jordan.  "Latent Dirichlet Allocation."  JMLR, 2003.
+ * Blei, Ng, and Jordan.  "Latent Dirichlet Allocation."  JMLR, 2003.
  *
  * Input data (featuresCol):
- *  LDA is given a collection of documents as input data, via the featuresCol parameter.
- *  Each document is specified as a `Vector` of length vocabSize, where each entry is the
- *  count for the corresponding term (word) in the document.  Feature transformers such as
- *  [[org.apache.spark.ml.feature.Tokenizer]] and [[org.apache.spark.ml.feature.CountVectorizer]]
- *  can be useful for converting text to word count vectors.
+ * LDA is given a collection of documents as input data, via the featuresCol parameter.
+ * Each document is specified as a `Vector` of length vocabSize, where each entry is the
+ * count for the corresponding term (word) in the document.  Feature transformers such as
+ * [[org.apache.spark.ml.feature.Tokenizer]] and [[org.apache.spark.ml.feature.CountVectorizer]]
+ * can be useful for converting text to word count vectors.
  *
  * @see <a href="http://en.wikipedia.org/wiki/Latent_Dirichlet_allocation">
- * Latent Dirichlet allocation (Wikipedia)</a>
+ *      Latent Dirichlet allocation (Wikipedia)</a>
  */
 @Since("1.6.0")
-class LDA @Since("1.6.0") (
-    @Since("1.6.0") override val uid: String)
+class LDA @Since("1.6.0")(
+                           @Since("1.6.0") override val uid: String)
   extends Estimator[LDAModel] with LDAParams with DefaultParamsWritable {
 
   @Since("1.6.0")
@@ -834,6 +855,8 @@ class LDA @Since("1.6.0") (
   /** @group setParam */
   @Since("1.6.0")
   def setMaxIter(value: Int): this.type = set(maxIter, value)
+
+  def setWorkerNumber(value: Int): this.type = set(workerNumber, value)
 
   /** @group setParam */
   @Since("1.6.0")
@@ -897,7 +920,7 @@ class LDA @Since("1.6.0") (
     val instr = Instrumentation.create(this, dataset)
     instr.logParams(featuresCol, topicDistributionCol, k, maxIter, subsamplingRate,
       checkpointInterval, keepLastCheckpoint, optimizeDocConcentration, topicConcentration,
-      learningDecay, optimizer, learningOffset, seed)
+      learningDecay, optimizer, learningOffset, seed, workerNumber)
 
     val oldLDA = new OldLDA()
       .setK($(k))
@@ -905,11 +928,47 @@ class LDA @Since("1.6.0") (
       .setTopicConcentration(getOldTopicConcentration)
       .setMaxIterations($(maxIter))
       .setSeed($(seed))
+      .setWorkerSize($(workerNumber))
       .setCheckpointInterval($(checkpointInterval))
       .setOptimizer(getOldOptimizer)
     // TODO: persist here, or in old LDA?
     val oldData = LDA.getOldDataset(dataset, $(featuresCol))
     val oldModel = oldLDA.run(oldData)
+    val newModel = oldModel match {
+      case m: OldLocalLDAModel =>
+        new LocalLDAModel(uid, m.vocabSize, m, dataset.sparkSession)
+      case m: OldDistributedLDAModel =>
+        new DistributedLDAModel(uid, m.vocabSize, m, dataset.sparkSession, None)
+    }
+
+    instr.logNumFeatures(newModel.vocabSize)
+    val model = copyValues(newModel).setParent(this)
+    instr.logSuccess(model)
+    model
+  }
+
+  def fitTest(dataset: Dataset[_], testset: Dataset[_]): LDAModel = {
+    transformSchema(dataset.schema, logging = true)
+    transformSchema(testset.schema, logging = true)
+
+    val instr = Instrumentation.create(this, dataset)
+    instr.logParams(featuresCol, topicDistributionCol, k, maxIter, subsamplingRate,
+      checkpointInterval, keepLastCheckpoint, optimizeDocConcentration, topicConcentration,
+      learningDecay, optimizer, learningOffset, seed, workerNumber)
+
+    val oldLDA = new OldLDA()
+      .setK($(k))
+      .setDocConcentration(getOldDocConcentration)
+      .setTopicConcentration(getOldTopicConcentration)
+      .setMaxIterations($(maxIter))
+      .setSeed($(seed))
+      .setWorkerSize($(workerNumber))
+      .setCheckpointInterval($(checkpointInterval))
+      .setOptimizer(getOldOptimizer)
+    // TODO: persist here, or in old LDA?
+    val oldData = LDA.getOldDataset(dataset, $(featuresCol))
+    val testData = LDA.getOldDataset(testset, $(featuresCol))
+    val oldModel = oldLDA.runTest(oldData, testData)
     val newModel = oldModel match {
       case m: OldLocalLDAModel =>
         new LocalLDAModel(uid, m.vocabSize, m, dataset.sparkSession)
@@ -934,8 +993,8 @@ object LDA extends MLReadable[LDA] {
 
   /** Get dataset for spark.mllib LDA */
   private[clustering] def getOldDataset(
-       dataset: Dataset[_],
-       featuresCol: String): RDD[(Long, OldVector)] = {
+                                         dataset: Dataset[_],
+                                         featuresCol: String): RDD[(Long, OldVector)] = {
     dataset
       .withColumn("docId", monotonically_increasing_id())
       .select("docId", featuresCol)
