@@ -446,7 +446,7 @@ final class OnlineLDAOptimizer extends LDAOptimizer with Logging {
     val batch = docs.sample(withReplacement = sampleWithReplacement, miniBatchFraction,
       randomGenerator.nextLong())
     logInfo(s"YY=OnlineLDA=555!")
-    if (batch.isEmpty()) return this
+//    if (batch.isEmpty()) return this
     submitMiniBatch(batch)
   }
 
@@ -800,7 +800,7 @@ final class ModelAverageLDAOptimizer extends LDAOptimizer with Logging {
     val k = this.k
     val vocabSize = this.vocabSize
     val workersize = this.workerSize.toDouble
-    val maxRecursive = 9
+    val maxRecursive = 4
     logInfo(s"YY=iter:${iter}=WorkerNumber:${workersize}" +
       s"=maxRecursive:${maxRecursive}=topic:${k}=kappa:${kappa}=tau0:${tau0}")
     val weight = rho()
@@ -882,7 +882,7 @@ final class ModelAverageLDAOptimizer extends LDAOptimizer with Logging {
           a1factsum = a1factsum + a1factorial
           a1factorial = a1factorial * a1
 
-          logphatPartOption.foreach(_ += LDAUtils.dirichletExpectation(gammad))
+//          logphatPartOption.foreach(_ += LDAUtils.dirichletExpectation(gammad))
         }
         // YY reconstract real Matrix value --- 246 ms
         val tmp4 = a3 * a1factsum
@@ -1113,7 +1113,7 @@ private[clustering] object ModelAverageLDAOptimizer {
     val ctsVector = new BDV[Double](cts) // ids
 
     // Iterate between gamma and phi until convergence
-    while (meanGammaChange > 1e-3) {
+    while (meanGammaChange > 1e-2) {
       val lastgamma = gammad.copy
       //        K                  K * ids               ids
       gammad := (expElogthetad *:* (expElogbetad.t * (ctsVector /:/ phiNorm))) +:+ alpha

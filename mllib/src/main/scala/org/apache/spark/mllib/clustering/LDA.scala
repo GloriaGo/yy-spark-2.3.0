@@ -395,8 +395,9 @@ class LDA private (
   }
 
   def isCheckIteration(iter: Int): Boolean = {
-    (iter < 10) || (iter > 10 && iter % 5 == 0)
-//    true
+//    (iter < 5 && iter % 2 == 1)
+    (iter < 20)|| (iter >= 10 && iter < 50 && iter % 5 == 0) || (iter >= 50 && iter < 100 && iter % 10 == 0) || (iter >= 100 && iter % 10 == 0)
+//    false
   }
 
   /**

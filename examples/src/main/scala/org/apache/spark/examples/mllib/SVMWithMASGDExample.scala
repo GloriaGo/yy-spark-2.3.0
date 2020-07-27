@@ -29,13 +29,20 @@ object SVMWithMASGDExample extends Logging{
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf().setAppName(args.apply(0))
     val sc = new SparkContext(conf)
-    // Load training data that has been balanced stored.
-    val training = MLUtils.loadLibSVMFile(sc, args.apply(1))
     // Run training algorithm to build the model
     val stepSize = args.apply(2).toDouble // 0.01
     val regParam = args.apply(3).toDouble // 0.0001
     val miniBatchFraction = args.apply(4).toDouble // 1.0
     val numIterations = args.apply(5).toInt // 10
+
+    logInfo(s"YYlog=data:${args.apply(0)}")
+    logInfo(s"YYlog=stepSize:${stepSize}=regParam:${regParam}")
+    logInfo(s"YYlog=miniBatchFraction:${miniBatchFraction}=numIterations:${numIterations}")
+    logInfo(s"YYlog=repartition:${args.apply(6).toInt}")
+
+    // Load training data that has been balanced stored.
+    val training = MLUtils.loadLibSVMFile(sc, args.apply(1)).coalesce(args.apply(6).toInt).cache()
+
 
     val ghandmodel = GhandSVMSGDShuffleModel
     val startTime = System.nanoTime()
@@ -47,9 +54,6 @@ object SVMWithMASGDExample extends Logging{
 //    val sameModel = SVMModel.load(sc, "target/tmp/scalaSVMWithMASGDModel")
     // $example off$
 
-    logInfo(s"YYlog=data:${args.apply(0)}")
-    logInfo(s"YYlog=stepSize:${stepSize}=regParam:${regParam}")
-    logInfo(s"YYlog=miniBatchFraction:${miniBatchFraction}=numIterations:${numIterations}")
     sc.stop()
   }
 }
