@@ -18,10 +18,22 @@ echo "export SPARK_HOME=/root/spark-2.3.0-bin-hadoop2.7" >> ~/.bashrc
 echo "export PATH=$SPARK_HOME/bin:$SPARK_HOME/sbin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH" >> ~/.bashrc
 
 #set configuration in hadoop-2.7.7/etc/hadoop and spark-2.3.0-bin-hadoop2.7/conf on driver
+#hadoop-etc and spark-conf include details.
+
+# since we use spark-shuffle, 
+cp $SPARK_HOME/yarn/spark-2.4.5-yarn-shuffle.jar $HADOOP_HOME/share/hadoop/yarn/lib/
+
+# add slave ip into /etc/hosts
+# edit ~/.ssh/authorized_keys
+# edit ~/.ssh/id_rsa
 
 for slave in $(cat slave_list)
 do
         #set ssh login without password between machines
+        scp /etc/hosts $slave:/etc/
+        scp ~/.ssh/authorized_keys $slave:~/.ssh/
+        scp ~/.ssh/id_rsa $slave:~/.ssh/
+
         #ufw disable
         ssh $slave "apt-get update"
         ssh $slave "apt-get install openjdk-8-jdk"
