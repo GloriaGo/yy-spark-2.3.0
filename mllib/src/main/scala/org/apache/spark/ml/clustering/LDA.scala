@@ -37,6 +37,7 @@ import org.apache.spark.mllib.clustering.{
   EMLDAOptimizer => OldEMLDAOptimizer, LDA => OldLDA, LDAModel => OldLDAModel,
   LDAOptimizer => OldLDAOptimizer, LocalLDAModel => OldLocalLDAModel,
   ModelAverageLDAOptimizer => OldModelAverageLDAOptimizer,
+  MultiThreadMALDAOPtimizer => OldModelAverageLDAOptimizer,
   OnlineLDAOptimizer => OldOnlineLDAOptimizer
 }
 import org.apache.spark.mllib.linalg.{Vector => OldVector, Vectors => OldVectors}
@@ -70,6 +71,11 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
 
   /** @group getParam */
   def getWorkerNumber: Int = $(workerNumber)
+
+  final val threadNumber = new IntParam(this, "threadNumber", "thread numbers", ParamValidators.gt(1))
+
+  /** @group getParam */
+  def getThreadNumber: Int = $(threadNumber)
 
   /**
    * Concentration parameter (commonly named "alpha") for the prior placed on documents'
@@ -159,7 +165,7 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
 
   /** Supported values for Param [[optimizer]]. */
   @Since("1.6.0")
-  final val supportedOptimizers: Array[String] = Array("online", "em", "ma")
+  final val supportedOptimizers: Array[String] = Array("online", "em", "ma", "mtma")
 
   /**
    * Optimizer or inference algorithm used to estimate the LDA model.
@@ -345,6 +351,10 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
           require(getDocConcentration.forall(_ >= 0),
             "For ModelAverageLDA optimizer, docConcentration values must be >= 0.  Found values: " +
               getDocConcentration.mkString(","))
+        case "mtma" =>
+          require(getDocConcentration.forall(_ >= 0),
+            "For MultiThreadModelAverageLDA optimizer, docConcentration values must be >= 0.  Found values: " +
+              getDocConcentration.mkString(","))
       }
     }
     if (isSet(topicConcentration)) {
@@ -357,6 +367,9 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
             s" must be >= 1.  Found value: $getTopicConcentration")
         case "ma" =>
           require(getTopicConcentration >= 0, s"For ModelAverageLDAoptimizer, topicConcentration" +
+            s" must be >= 0.  Found value: $getTopicConcentration")
+        case "mtma" =>
+          require(getTopicConcentration >= 0, s"For MultiThreadModelAverageLDAoptimizer, topicConcentration" +
             s" must be >= 0.  Found value: $getTopicConcentration")
       }
     }
@@ -377,6 +390,12 @@ private[clustering] trait LDAParams extends Params with HasFeaturesCol with HasM
           .setKeepLastCheckpoint($(keepLastCheckpoint))
       case "ma" =>
         new OldModelAverageLDAOptimizer()
+          .setTau0($(learningOffset))
+          .setKappa($(learningDecay))
+          .setMiniBatchFraction($(subsamplingRate))
+          .setOptimizeDocConcentration($(optimizeDocConcentration))
+      case "mtma" =>
+        new OldMultiThreadMALDAOptimizer()
           .setTau0($(learningOffset))
           .setKappa($(learningDecay))
           .setMiniBatchFraction($(subsamplingRate))
@@ -858,6 +877,8 @@ class LDA @Since("1.6.0")(
 
   def setWorkerNumber(value: Int): this.type = set(workerNumber, value)
 
+  def setThreadNumber(value: Int): this.type = set(threadNumber, value)
+
   /** @group setParam */
   @Since("1.6.0")
   def setSeed(value: Long): this.type = set(seed, value)
@@ -920,7 +941,7 @@ class LDA @Since("1.6.0")(
     val instr = Instrumentation.create(this, dataset)
     instr.logParams(featuresCol, topicDistributionCol, k, maxIter, subsamplingRate,
       checkpointInterval, keepLastCheckpoint, optimizeDocConcentration, topicConcentration,
-      learningDecay, optimizer, learningOffset, seed, workerNumber)
+      learningDecay, optimizer, learningOffset, seed, workerNumber, threadNumber)
 
     val oldLDA = new OldLDA()
       .setK($(k))
@@ -929,6 +950,7 @@ class LDA @Since("1.6.0")(
       .setMaxIterations($(maxIter))
       .setSeed($(seed))
       .setWorkerSize($(workerNumber))
+      .setThreadSize($(threadNumber))
       .setCheckpointInterval($(checkpointInterval))
       .setOptimizer(getOldOptimizer)
     // TODO: persist here, or in old LDA?
@@ -954,7 +976,7 @@ class LDA @Since("1.6.0")(
     val instr = Instrumentation.create(this, dataset)
     instr.logParams(featuresCol, topicDistributionCol, k, maxIter, subsamplingRate,
       checkpointInterval, keepLastCheckpoint, optimizeDocConcentration, topicConcentration,
-      learningDecay, optimizer, learningOffset, seed, workerNumber)
+      learningDecay, optimizer, learningOffset, seed, workerNumber, threadNumber)
 
     val oldLDA = new OldLDA()
       .setK($(k))
@@ -963,6 +985,7 @@ class LDA @Since("1.6.0")(
       .setMaxIterations($(maxIter))
       .setSeed($(seed))
       .setWorkerSize($(workerNumber))
+      .setThreadSize($(threadNumber))
       .setCheckpointInterval($(checkpointInterval))
       .setOptimizer(getOldOptimizer)
     // TODO: persist here, or in old LDA?

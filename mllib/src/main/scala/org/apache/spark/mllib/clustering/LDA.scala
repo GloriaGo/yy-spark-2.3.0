@@ -53,6 +53,7 @@ class LDA private (
     private var topicConcentration: Double,
     private var seed: Long,
     private var workerSize: Int,
+    private var threadSize: Int,
     private var checkpointInterval: Int,
     private var ldaOptimizer: LDAOptimizer) extends Logging {
 
@@ -62,7 +63,7 @@ class LDA private (
   @Since("1.3.0")
   def this() = this(k = 10, maxIterations = 20, docConcentration = Vectors.dense(-1),
     topicConcentration = -1, seed = Utils.random.nextLong(), checkpointInterval = 10,
-    ldaOptimizer = new EMLDAOptimizer, workerSize = 2)
+    ldaOptimizer = new EMLDAOptimizer, workerSize = 1, threadSize = 1)
 
   /**
    * Number of topics to infer, i.e., the number of soft cluster centers.
@@ -265,6 +266,13 @@ class LDA private (
     this
   }
 
+  def getThreadSize: Int = threadSize
+
+  def setThreadSize(threadSize: Int): this.type = {
+    this.threadSize = threadSize
+    this
+  }
+
   /**
    * Period (in iterations) between checkpoints.
    */
@@ -321,8 +329,9 @@ class LDA private (
         case "em" => new EMLDAOptimizer
         case "online" => new OnlineLDAOptimizer
         case "ma" => new ModelAverageLDAOptimizer
+        case "mtma" => new MultiThreadMALDAOptimizer
         case other =>
-          throw new IllegalArgumentException(s"Only em, online, ma are supported but got $other.")
+          throw new IllegalArgumentException(s"Only em, online, ma, mtma are supported but got $other.")
       }
     this
   }

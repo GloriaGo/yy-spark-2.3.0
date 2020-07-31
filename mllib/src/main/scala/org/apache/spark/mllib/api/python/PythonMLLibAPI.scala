@@ -531,11 +531,13 @@ private[python] class PythonMLLibAPI extends Serializable {
       topicConcentration: Double,
       seed: java.lang.Long,
       workerSize: Int,
+      threadSize: Int,
       checkpointInterval: Int,
       optimizer: String): LDAModelWrapper = {
     val algo = new LDA()
       .setK(k)
       .setWorkerSize(workerSize)
+      .setThreadSize(threadSize)
       .setMaxIterations(maxIterations)
       .setDocConcentration(docConcentration)
       .setTopicConcentration(topicConcentration)
