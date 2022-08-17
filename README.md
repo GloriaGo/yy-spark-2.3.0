@@ -5,6 +5,10 @@ It provides MLlib for machine learning but slow.
 Model averaging could significantly improve the performance of MLlib.
 In this project, we take SGD and LDA as examples to show the MA-based versions are faster.
 
+Please read our paper for more details:
+
+Guo, Y., Zhang, Z., Jiang, J. et al. Model averaging in distributed machine learning: a case study with Apache Spark. The VLDB Journal 30, 693–712 (2021). https://doi.org/10.1007/s00778-021-00664-7
+
 ## Online Documentation
 
 You can find the latest Spark documentation, including a programming
